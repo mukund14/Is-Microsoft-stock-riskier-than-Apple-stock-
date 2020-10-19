@@ -1,0 +1,281 @@
+
+
+
+```{r}
+getwd()
+dir="test"
+setwd(dir)
+library(QRM)
+library(fGarch)
+library(FRAPO)
+library(timeSeries)
+```
+
+
+```{r}
+library(quantmod)
+aapl <- getSymbols("aapl", src = "yahoo", from = "2000-01-01", to = "2020-09-30", auto.assign = FALSE)
+head(aapl)
+#aapl<-as.data.frame(aapl)
+msft <- getSymbols("msft", src = "yahoo", from = "2000-01-01", to = "2020-09-30", auto.assign = FALSE)
+#msft<-as.data.frame(msft)
+head(msft)
+
+length(aapl)
+length(msft)
+
+```
+
+
+
+```{r}
+library(data.table)
+aapl=as.data.frame(aapl)
+setDT(aapl, keep.rownames = TRUE)[]
+colnames(aapl)
+names(aapl)[names(aapl)=="rn"]<-"Date"
+head(aapl)
+
+
+msft=as.data.frame(msft)
+setDT(msft, keep.rownames = TRUE)[]
+colnames(msft)
+names(msft)[names(msft)=="rn"]<-"Date"
+head(msft)
+
+```
+```{r}
+aapl$Date=as.Date(aapl$Date, origin = "1900-01-01")
+head(aapl)
+msft$Date=as.Date(msft$Date, origin = "1900-01-01")
+head(msft)
+```
+
+
+
+```{r}
+aapl<-aapl
+msft<-msft
+head(msft)
+```
+
+```{r}
+Date<-aapl$Date
+```
+
+```{r}
+library(timeSeries)
+aaplPrice<-aapl$AAPL.Close
+aaplPriceTS<-timeSeries(aaplPrice, charvec = Date)
+aapl$aaplRet<-returnseries(aaplPriceTS)
+msftPrice<-msft$MSFT.Close
+msftPriceTS<-timeSeries(msftPrice, charvec = Date)
+msft$msftRet<-returnseries(msftPriceTS)
+
+```
+
+
+```{r}
+
+aaplsubset=subset(aapl,select=c(Date,aaplRet))
+msftsubset=subset(msft,select=c(Date,msftRet))
+aaplsubset=na.omit(aaplsubset)
+msftsubset=na.omit(msftsubset)
+head(aaplsubset)
+```
+
+
+
+
+
+```{r}
+aaplret= aapl$aaplRet[complete.cases(aapl$aaplRet)]
+msftret=msft$msftRet[complete.cases(msft$msftRet)]
+head(aaplret)
+```
+
+
+```{r}
+attr(aaplret, 'time')<-date
+attr(msftret, 'time')<-date
+
+```
+
+
+
+```{r}
+expaaplret<-mean(aaplret,na.rm=TRUE)
+expmsftret<-mean(msftret,na.rm=TRUE)
+c(expaaplret,expmsftret)
+
+```
+
+
+```{r}
+varaapl<-var(aaplret,na.rm = TRUE)
+varmsft<-var(msftret,na.rm = TRUE)
+c(varaapl,varmsft)
+```
+
+
+```{r}
+portriskret<-function(x,y,wx){
+  varx<-var(x, na.rm = TRUE)
+  vary<-var(y, na.rm = TRUE)
+  meanx<-mean(x, na.rm = TRUE)
+  meany<-mean(y, na.rm = TRUE)
+  corxy<-cor(x,y, use="pairwise.complete.obs")
+  risk<-wx^2*varx+(1-wx)^2*vary+2*sqrt(varx)*sqrt(vary)*wx*(1-wx)*corxy
+  ERp<-wx*meanx+(1-wx)*meany
+  c(ERp, sqrt(risk))
+}
+
+
+```
+
+
+```{r}
+#one<-portriskret(aaplret,msftret, 0.6,0.35)
+#one[1]/one[2]
+# To check for any individual coin, we can divide expected rate  by variable rate  
+c(expaaplret,expmsftret)/c(varaapl,varmsft)
+portriskret(aaplret,msftret, 0.6)
+aaplrets=c(expaaplret,varaapl)
+msftrets=c(expaaplret,varmsft)
+```
+
+
+```{r}
+coinsrets<-cbind(aaplret,msftret)
+coinsrets<-na.omit(coinsrets)
+head(coinsrets)
+```
+
+```{r}
+coinscov=cov(coinsrets, use="pairwise.complete.obs")
+
+```
+
+
+
+```{r}
+ERC<-PGMV(coinsrets)
+str(ERC)
+w<-Weights(ERC)
+
+waapl<-as.numeric(w[1])/100
+wmsft<-as.numeric(w[2])/100
+waapl
+wmsft
+```
+
+
+```{r}
+gmvpretrisk<-portriskret(aaplret,msftret,waapl)
+
+gmvpretrisk
+```
+
+```{r}
+myport<-waapl*aaplret+wmsft*msftret
+
+```
+
+
+
+```{r}
+library(ghyp)
+library(timeSeries)
+library(fBasics)
+```
+
+
+```{r}
+
+myportts<-timeSeries(myport)
+str(myportts)
+head(myportts)  
+
+
+
+  
+```
+
+```{r}
+
+## Diagnostics to check which model works best
+AIC <- stepAIC.ghyp(myportts, control = list(maxit = 1000))
+AIC$fit.table
+```
+
+
+
+
+```{r}
+
+## Diagnostics to check which model works best
+AICm1 <- stepAIC.ghyp(msftPriceTS, control = list(maxit = 1000))
+AICm1$fit.table
+```
+```{r}
+
+## Diagnostics to check which model works best
+AICa1 <- stepAIC.ghyp(aaplPriceTS, control = list(maxit = 1000))
+AICa1$fit.table
+```
+
+```{r}
+# Since we chose ghyp model, we will fit that to myport
+NIGfit<- fit.NIGuv(myport, symmetric = FALSE, control = list(maxit = 1000), na.rm = TRUE)
+
+VGfit_aapl<- fit.VGuv(aaplret, symmetric = FALSE, control = list(maxit = 1000), na.rm = TRUE)
+
+```
+
+
+```{r}
+ghypfit_msft<- fit.ghypuv(msftret, symmetric = FALSE, control = list(maxit = 1000), na.rm = TRUE)
+```
+
+
+```{r}
+## Probabilities
+p <- c(0.01, 0.05,0.1)
+p
+```
+
+
+```{r}
+
+portvar<- qghyp(p, NIGfit)
+portvar
+
+aaplvar<- qghyp(p, VGfit_aapl)
+aaplvar
+
+msftvar<- qghyp(p, ghypfit_msft)
+msftvar
+```
+
+
+
+
+
+```{r}
+portes<-ESghyp(p,NIGfit)
+portes_aapl<-ESghyp(p,VGfit_aapl)
+portes_msft<-ESghyp(p,ghypfit_msft)
+portes
+portvar
+```
+```{r}
+portes_msft
+msftvar
+
+```
+
+```{r}
+portes_aapl
+aaplvar
+
+```
